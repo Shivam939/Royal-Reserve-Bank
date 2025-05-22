@@ -1,0 +1,190 @@
+version: "3.8"
+services:
+  account-api:
+    container_name: account-api
+    image: 0145136798/account-api
+    environment:
+      spring.profiles.active: docker
+      spring.config.import: configserver:http://config-server:8888/config-server
+    depends_on:
+      - account-api-mongo
+      - api-gateway
+    restart: on-failure
+
+  account-api-mongo:
+    image: mongo:6.0.5
+    container_name: account-api-mongo
+    ports:
+      - "27017:27017"
+    expose:
+      - "27017"
+    volumes:
+      - ./data/account-api-mongo:/data/mongo
+
+  api-gateway:
+    image: 0145136798/api-gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    expose:
+      - "8080"
+    environment:
+      spring.profiles.active: docker
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: TRACE
+      spring.config.import: configserver:http://config-server:8888/config-server
+    depends_on:
+      - discovery-server
+    restart: on-failure
+
+  asset-management-api:
+    container_name: asset-management-api
+    image: 0145136798/asset-management-api
+    environment:
+      spring.profiles.active: docker
+      spring.config.import: configserver:http://config-server:8888/config-server
+    depends_on:
+      - asset-management-api-mysql
+      - api-gateway
+    restart: on-failure
+
+  asset-management-api-mysql:
+    container_name: asset-management-api-mysql
+    image: mysql:8.0.33
+    ports:
+      - "3306:3306"
+    expose:
+      - "3306"
+    environment:
+      MYSQL_DATABASE: mysql
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: pwd
+      MYSQL_ROOT_PASSWORD: pwd
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - ./data/asset-management-api-mysql:/data/mysql
+
+  config-server:
+    container_name: config-server
+    image: 0145136798/config-server
+    ports:
+      - "8888:8888"
+    expose:
+      - "8888"
+    environment:
+      spring.profiles.active: docker
+    volumes:
+      - ./config-files:/app/resources/config-files
+    depends_on:
+      - zipkin
+
+  discovery-server:
+    image: 0145136798/discovery-server
+    container_name: discovery-server
+    ports:
+      - "8761:8761"
+    expose:
+      - "8761"
+    environment:
+      - spring.profiles.active=docker
+      - spring.config.import=configserver:http://config-server:8888/config-server
+    depends_on:
+      - config-server
+    restart: on-failure
+
+  grafana:
+    image: grafana/grafana:10.0.1
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    links:
+      - prometheus:prometheus
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    environment:
+      gf_security_admin_user: admin
+      gf_security_admin_password: password
+    #note: dashboard id: 11378
+
+  notification-api:
+    container_name: notification-api
+    image: 0145136798/notification-api
+    environment:
+      spring.profiles.active: docker
+      spring.config.import: configserver:http://config-server:8888/config-server
+    depends_on:
+      - notification-api-kafka
+      - api-gateway
+    restart: on-failure
+
+  notification-api-kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: notification-api-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_NODE_ID: 1
+      CLUSTER_ID: MkU3OEVANTcwNTJENDM2Qk
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://notification-api-kafka:29092,HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://notification-api-kafka:29092,CONTROLLER://notification-api-kafka:29093,HOST://0.0.0.0:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@notification-api-kafka:29093
+
+  prometheus:
+    image: prom/prometheus:v2.43.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus-configuration.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - account-api
+      - asset-management-api
+      - transaction-api
+      - notification-api
+
+  redis:
+    image: redis:7.0.11
+    container_name: redis
+    ports:
+      - "6379:6379"
+    depends_on:
+      - account-api
+      - asset-management-api
+      - transaction-api
+
+  transaction-api:
+    container_name: transaction-api
+    image: 0145136798/transaction-api
+    environment:
+      spring.profiles.active: docker
+      spring.config.import: configserver:http://config-server:8888/config-server
+    depends_on:
+      - transaction-api-postgres
+      - notification-api-kafka
+      - api-gateway
+    restart: on-failure
+
+  transaction-api-postgres:
+    image: postgres:15.2
+    container_name: transaction-api-postgres
+    ports:
+      - "5432:5432"
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: admin
+    volumes:
+      - ./data/transaction-api-postgres:/data/postgres
+
+  zipkin:
+    image: openzipkin/zipkin:2.24.0
+    container_name: zipkin
+    ports:
+      - "9411:9411"
