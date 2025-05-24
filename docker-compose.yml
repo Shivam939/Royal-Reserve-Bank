@@ -85,8 +85,8 @@ services:
     expose:
       - "8761"
     environment:
-      - spring.profiles.active=docker
-      - spring.config.import=configserver:http://config-server:8888/config-server
+      spring.profiles.active: docker
+      spring.config.import: configserver:http://config-server:8888/config-server
     depends_on:
       - config-server
     restart: on-failure
